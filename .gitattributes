@@ -1,0 +1,11 @@
+# テキストファイルは LF に統一（Windows / Codemagic(Mac) 間の差分ノイズ防止）
+* text=auto eol=lf
+
+# バイナリは変換しない
+*.png binary
+*.jpg binary
+*.mp4 binary
+*.mp3 binary
+*.wav binary
+*.gz binary
+*.ico binary
