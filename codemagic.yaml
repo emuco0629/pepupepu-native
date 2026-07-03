@@ -1,0 +1,63 @@
+# Codemagic CI/CD 設定
+# Capacitor + Vite の iOS アプリを App Store Connect（TestFlight）へ配信する。
+# トリガーは設定せず、Codemagic のダッシュボードからの手動ビルド前提。
+#
+# 注意: Capacitor 8 は Swift Package Manager ベースのため、
+# App.xcworkspace は存在しない（CocoaPods 不使用）。
+# ビルド対象は ios/App/App.xcodeproj（スキーム: App）。
+
+workflows:
+  ios-testflight:
+    name: iOS TestFlight (Capacitor + Vite)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+
+    integrations:
+      # Codemagic の Teams > Integrations > App Store Connect で登録した
+      # API キーの名前に置き換える（下はプレースホルダ）
+      app_store_connect: codemagic_api_key
+
+    environment:
+      ios_signing:
+        # Codemagic の自動署名: App Store Connect API キーから
+        # 配布証明書とプロビジョニングプロファイルを自動取得・生成する
+        distribution_type: app_store
+        bundle_identifier: com.pepupepu.app
+      node: 24.11.0
+
+    scripts:
+      - name: Install npm dependencies
+        script: npm ci
+
+      - name: Build web assets (Vite)
+        script: npm run build
+
+      - name: Capacitor sync
+        script: npx cap sync ios
+
+      - name: Set up iOS code signing
+        script: xcode-project use-profiles
+
+      - name: Set build number
+        script: |
+          # TestFlight はビルド番号（CFBundleVersion）の重複を許さないため、
+          # Codemagic のビルド連番を反映して毎回ユニークにする
+          cd ios/App
+          agvtool new-version -all $BUILD_NUMBER
+
+      - name: Build .ipa
+        script: |
+          xcode-project build-ipa \
+            --project ios/App/App.xcodeproj \
+            --scheme App
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        # integrations の App Store Connect API キーで認証する
+        auth: integrations
+        # ビルド成功後、TestFlight へ自動送信
+        submit_to_testflight: true
