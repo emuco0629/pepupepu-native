@@ -1,0 +1,34 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# 環境変数
+.env
+.env.*
+
+# cap sync で生成される（ios/.gitignore でも除外済みだが明示）
+ios/App/App/public/
+
+# Claude Code のローカル設定（個人の権限設定なので共有しない）
+.claude/settings.local.json
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

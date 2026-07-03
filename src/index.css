@@ -1,0 +1,309 @@
+:root {
+  font-family: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  /* 夜空の最上段と同色（オーバースクロール時に境目が見えないように） */
+  background: #38305a;
+  color: #f4f1fb;
+  /* 単一画面アプリ: スクロールさせず、幅は常にビューポートと一致させる */
+  overflow: hidden;
+  /* iOS でのバウンス・ダブルタップ拡大を抑える */
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
+/*
+ * ルール3: safe-area 対応レイアウト
+ * viewport-fit=cover（index.html）で、背景（夜空）はノッチ・ホームバーの
+ * 下まで含めた画面全面に隙間なく広がる。env(safe-area-inset-*) の
+ * パディングは背景ではなく UI 要素側（.room-bottom）に適用し、
+ * 入力欄などの操作要素だけがノッチ・ホームバーを避ける。
+ *
+ * 背景は薄紫の夜空。上ほど深く、下ほど淡い、フラットな色面のバンド4段。
+ */
+.app {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  box-sizing: border-box;
+
+  display: flex;
+  flex-direction: column;
+
+  background: linear-gradient(
+    to bottom,
+    #38305a 0%,
+    #38305a 26%,
+    #4e4379 26%,
+    #4e4379 52%,
+    #6f5fa0 52%,
+    #6f5fa0 76%,
+    #9a89c7 76%,
+    #9a89c7 100%
+  );
+}
+
+@supports (height: 100dvh) {
+  .app {
+    height: 100dvh;
+  }
+}
+
+/* ── 夜空: 星が降り積もり、のろし文字が立ちのぼる領域 ── */
+
+.room-sky {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+/*
+ * のろし文字のレイヤー: 画面全体（.app）を覆い、パピの頭上から夜空まで
+ * 文字が貫いて上昇する。位置は App の rAF が毎フレーム、投稿ごとに
+ * 生成される見えないS字カーブに沿って更新する（CSSアニメは使わない）。
+ */
+.noroshi-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.noroshi-char {
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* ほぼ白: 夜空との明度差を大きく保つ */
+  color: #fdfbff;
+  font-size: 24px;
+  font-weight: 600;
+  text-shadow:
+    0 0 12px rgba(255, 255, 255, 0.75),
+    0 0 3px rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+  user-select: none;
+  will-change: transform, opacity;
+}
+
+.star {
+  position: absolute;
+  border-radius: 50%;
+  background: var(--star-color, #fff);
+  box-shadow: 0 0 6px 1px var(--star-glow, rgba(255, 255, 255, 0.6));
+  pointer-events: none;
+  animation:
+    star-in 0.6s ease-out both,
+    star-twinkle var(--twinkle-duration, 3s) ease-in-out
+      var(--twinkle-delay, 1s) infinite alternate;
+}
+
+@keyframes star-in {
+  from {
+    transform: scale(0);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: var(--star-opacity, 0.9);
+  }
+}
+
+@keyframes star-twinkle {
+  from {
+    opacity: var(--star-opacity, 0.9);
+  }
+  to {
+    opacity: calc(var(--star-opacity, 0.9) * 0.5);
+  }
+}
+
+/* ── 下部: さまようパピ + 入力欄と送信ボタン ── */
+
+.room-bottom {
+  /* ルール3: UI 要素は safe-area を避ける（背景は .app が全面に描く） */
+  padding: 0 calc(16px + env(safe-area-inset-right))
+    calc(14px + env(safe-area-inset-bottom))
+    calc(16px + env(safe-area-inset-left));
+}
+
+.papi-strip {
+  position: relative;
+  height: 52px;
+  margin-bottom: 6px;
+}
+
+.papi-wander {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  will-change: transform;
+}
+
+.room-form {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.room-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  border-radius: 22px;
+  padding: 12px 18px;
+  /* iOS のフォーカスズーム防止のため 16px 以上 */
+  font-size: 16px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #333;
+  outline: none;
+}
+
+.room-input::placeholder {
+  color: #a89fc0;
+}
+
+.room-send {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border: none;
+  border-radius: 50%;
+  background: var(--papi-color, #c8b0fe);
+  /* パピが白でもボタンの↑が見えるよう、矢印は夜空トーンの固定色 */
+  color: #7a6ba3;
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.room-send:disabled {
+  opacity: 0.5;
+}
+
+/* ── オンボーディング（誕生シーン） ── */
+
+/* オンボーディング中、ルームの下部UIは隠す（レイアウトは保持して
+   降下先の座標計算に使う）。夜空はそのまま共有する */
+.app-onboarding .room-bottom {
+  visibility: hidden;
+}
+
+.onb-scene {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  overflow: hidden;
+}
+
+.onb-fade-out {
+  opacity: 0 !important;
+}
+
+.onb-title-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  transition: opacity 0.66s ease;
+}
+
+.onb-title {
+  margin: 0;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: #fdfbff;
+}
+
+.onb-tap {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(253, 251, 255, 0.75);
+  animation: onb-tap-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes onb-tap-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+
+.onb-greeting {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 42%;
+  text-align: center;
+  letter-spacing: 6px;
+  pointer-events: none;
+}
+
+.onb-char {
+  display: inline-block;
+  font-size: 32px;
+  color: #fdfbff;
+  text-shadow: 0 0 14px rgba(255, 255, 255, 0.5);
+  /* 消えるとき・「ぱ」が中央へ拡大するときのゆっくりした変化 */
+  transition:
+    opacity 1s ease,
+    transform 1.5s ease-in-out;
+  will-change: transform, opacity;
+}
+
+.onb-papi {
+  position: absolute;
+  transform-origin: 0 0;
+  /* 出現はふわっと、降下はゆっくり */
+  animation: onb-appear 0.9s ease both;
+  transition: transform 1.6s ease-in-out;
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+
+@keyframes onb-appear {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.onb-papi-inner {
+  transition: transform 0.9s ease;
+}
+
+.onb-papi-inner.onb-floated {
+  transform: translateY(-10px);
+}
+
+.onb-welcome {
+  position: absolute;
+  margin: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 19px;
+  letter-spacing: 2px;
+  color: #fdfbff;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+  transition: opacity 0.9s ease;
+  pointer-events: none;
+}
