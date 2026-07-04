@@ -257,15 +257,27 @@ body {
 }
 
 .onb-char {
+  /* 公式の文字SVG（public/onboarding/）を1文字 = 1画像で表示 */
   display: inline-block;
-  font-size: 32px;
-  color: #fdfbff;
-  text-shadow: 0 0 14px rgba(255, 255, 255, 0.5);
+  height: 36px;
+  width: auto;
+  margin: 0 4px;
+  vertical-align: middle;
+  user-select: none;
   /* 消えるとき・「ぱ」が中央へ拡大するときのゆっくりした変化 */
   transition:
     opacity 1s ease,
     transform 1.5s ease-in-out;
   will-change: transform, opacity;
+}
+
+/* 誕生の絵 pa-1.svg（丸に顔が宿った「ぱ」）。拡大後の pa-0 に重ねる */
+.onb-pa1 {
+  position: absolute;
+  animation: onb-appear 0.9s ease both;
+  transition: opacity 0.9s ease;
+  user-select: none;
+  pointer-events: none;
 }
 
 .onb-papi {

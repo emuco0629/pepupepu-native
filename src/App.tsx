@@ -34,9 +34,22 @@ import type { PapiMouth } from './components/papiMouth'
 /** 現在のユーザーのパピの色（ユーザーごとに変わる想定。参照元はここだけ） */
 const PAPI_COLOR = '#FFFFFF'
 
-/** 白い体のパピだけ口を薄ピンクにする（白以外の口は白のまま） */
+/**
+ * 白い体のパピは、口を背景（夜空）色でくり抜いたように見せる。
+ * ルームのパピは最下段バンドの上にいるので、その色に合わせる
+ * （index.css の夜空グラデーション最下段 #9a89c7 と同期）。
+ * 白以外の体の口は白のまま。
+ */
 const PAPI_MOUTH_COLOR =
-  PAPI_COLOR.toLowerCase() === '#ffffff' ? '#FFD3DF' : 'white'
+  PAPI_COLOR.toLowerCase() === '#ffffff' ? '#9A89C7' : 'white'
+
+/**
+ * オンボーディング中のパピは画面中央（夜空の2段目バンドの上）にいるため、
+ * 口のくり抜き色はそのバンド色に合わせる（index.css の #4e4379 と同期。
+ * public/onboarding/pa-1.svg の丸キャラの口も同色）。
+ */
+const ONB_PAPI_MOUTH_COLOR =
+  PAPI_COLOR.toLowerCase() === '#ffffff' ? '#4E4379' : 'white'
 
 /** 白い体のとき、羽にごく薄い明度差をつけて体との重なりを見せる */
 const PAPI_WING_COLOR =
@@ -425,7 +438,7 @@ function App() {
       {scene === 'onboarding' && (
         <OnboardingScene
           papiColor={PAPI_COLOR}
-          papiMouthColor={PAPI_MOUTH_COLOR}
+          papiMouthColor={ONB_PAPI_MOUTH_COLOR}
           papiWingColor={PAPI_WING_COLOR}
           getLandingRect={() =>
             stripRef.current

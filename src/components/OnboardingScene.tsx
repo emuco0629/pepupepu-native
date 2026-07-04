@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
+import { assetPath } from '../core/assetPath'
 import { playPagyoChar, whenVoicesReady } from '../core/audio'
 import { NOROSHI_INTERVAL_MS } from '../core/constants'
 import { safeConvertToPagyo } from '../core/convert/papipupepo'
@@ -31,10 +32,30 @@ import type { PapiMouth } from './papiMouth'
 const BEAT = NOROSHI_INTERVAL_MS
 const GREETING = 'こんにちは'
 const WELCOME = 'ぺぷぺぷぺぷへようこそ'
-/** 誕生時のパピの表示幅。体の円（直径 50/92）が拡大後の「ぱ」とほぼ同じ大きさ */
+/** 誕生時のパピの表示幅 */
 const BIRTH_PAPI_SIZE = 166
-/** 「ぱ」の拡大率（32px → 約96px ≒ 体の円の直径） */
+/** 「ぱ」(pa-0) の拡大率 */
 const PA_GROW_SCALE = 3
+
+/**
+ * オンボーディング用の公式文字SVG（ルール1: public/onboarding/ から
+ * assetPath 経由で読み込む。原典は design/onboarding/ — 変更禁止）。
+ * pa-1.svg は「ぱ」の半濁点の丸がキャラクター（体・ぱの口・目）に
+ * なった誕生の絵。丸は viewBox(80×93) 内の中心(69,11)・直径22。
+ */
+const ONB_CHAR_SVG: Record<string, string> = {
+  'こ': 'ko',
+  'ん': 'n',
+  'に': 'ni',
+  'ち': 'chi',
+  'は': 'ha',
+  'ぽ': 'po',
+  'ぷ': 'pu-0',
+  'ぴ': 'pi-0',
+  'ぱ': 'pa-0',
+}
+
+const onbSvgPath = (name: string) => assetPath(`onboarding/${name}.svg`)
 
 interface OnboardingSceneProps {
   papiColor: string
@@ -58,6 +79,14 @@ function OnboardingScene({
   const [othersFaded, setOthersFaded] = useState(false)
   const [paStyle, setPaStyle] = useState<CSSProperties>()
   const [paFading, setPaFading] = useState(false)
+  /** 誕生の絵 pa-1.svg（丸に顔が宿った「ぱ」）の表示位置。拡大後の pa-0 に重ねる */
+  const [pa1Rect, setPa1Rect] = useState<{
+    left: number
+    top: number
+    width: number
+    height: number
+  } | null>(null)
+  const [pa1Fading, setPa1Fading] = useState(false)
   const [papiPos, setPapiPos] = useState<{ left: number; top: number } | null>(
     null,
   )
@@ -71,12 +100,17 @@ function OnboardingScene({
   const [welcomeFading, setWelcomeFading] = useState(false)
 
   const rootRef = useRef<HTMLDivElement>(null)
-  const paCharRef = useRef<HTMLSpanElement>(null)
+  const paCharRef = useRef<HTMLImageElement>(null)
   const noroshiRef = useRef<NoroshiHandle | null>(null)
   const timersRef = useRef(new Set<ReturnType<typeof setTimeout>>())
   const startedRef = useRef(false)
 
   useEffect(() => {
+    // 文字SVGを先読みして、化けの瞬間のちらつきを防ぐ
+    for (const name of [...new Set(Object.values(ONB_CHAR_SVG)), 'pa-1']) {
+      const img = new Image()
+      img.src = onbSvgPath(name)
+    }
     const timers = timersRef.current
     return () => {
       noroshiRef.current?.stop()
@@ -115,7 +149,7 @@ function OnboardingScene({
     setOthersFaded(true)
     await wait(BEAT * 5)
 
-    // 4: 「ぱ」が画面中央へゆっくり拡大
+    // 4: 「ぱ」(pa-0) が画面中央へゆっくり拡大
     const root = rootRef.current
     const pa = paCharRef.current
     if (!root || !pa) {
@@ -135,19 +169,45 @@ function OnboardingScene({
     })
     await wait(BEAT * 8)
 
-    // 5: 「ぱ」→ 白い円（体だけのパピ）。体の円の中心を「ぱ」の中心に合わせる
+    // 5: 丸に顔が宿る。拡大した pa-0 の上に pa-1（丸がキャラの「ぱ」）を
+    //    重ねてクロスフェードする
+    const grown = pa.getBoundingClientRect()
+    const rootNow = root.getBoundingClientRect()
+    const pa1 = {
+      left: grown.left - rootNow.left,
+      top: grown.top - rootNow.top,
+      width: grown.width,
+      height: grown.height,
+    }
+    setPa1Rect(pa1)
+    setPaFading(true)
+    await wait(BEAT * 5)
+
+    // 5.5: 丸のキャラクターを既存の Papi コンポーネントへ引き継ぎ、
+    //      中央へゆっくり成長させる。顔（目）は丸で誕生済みなのでそのまま。
+    //      pa-1 の丸は viewBox(80×93) 内の中心(69,11)・直径22
+    const maruCx = pa1.left + pa1.width * (69 / 80)
+    const maruCy = pa1.top + pa1.height * (11 / 93)
+    const maruD = pa1.width * (22 / 80)
     const pos = {
       left: center.x - BIRTH_PAPI_SIZE / 2, // 体の円の中心は viewBox のちょうど半分
       top: center.y - (BIRTH_PAPI_SIZE * 25) / 92, // 体の中心 y = 25/92 × 幅
     }
+    // Papi の体の円（wrapper ローカルで中心 (S/2, S·25/92)・直径 S·50/92）を
+    // 丸にぴったり重ねる初期 transform（transform-origin: 0 0）
+    const scale0 = maruD / ((BIRTH_PAPI_SIZE * 50) / 92)
+    const t0x = maruCx - pos.left - scale0 * (BIRTH_PAPI_SIZE / 2)
+    const t0y = maruCy - pos.top - scale0 * ((BIRTH_PAPI_SIZE * 25) / 92)
     setPapiPos(pos)
-    setPaFading(true)
-    await wait(BEAT * 5)
+    setEyes(true)
+    setPapiTransform(`translate(${t0x}px, ${t0y}px) scale(${scale0})`)
+    setPa1Fading(true)
+    await wait(BEAT * 3)
+    setPapiTransform('translate(0px, 0px) scale(1)')
+    await wait(BEAT * 8)
 
-    // 6: 誕生（各ステップ1拍以上あけて）
-    setEyes(true) // a. 目（Papi 内で1回まばたきする）
-    await wait(BEAT * 5)
-    setMouth('pa') // b. 口が「ぱ」で開き、音が1回鳴る
+    // 6: 誕生の続き（各ステップ1拍以上あけて）
+    setMouth('pa') // 口が「ぱ」で開き、音が1回鳴る
     playPagyoChar('ぱ')
     await wait(BEAT * 3)
     setMouth('none')
@@ -218,19 +278,35 @@ function OnboardingScene({
           {chars.map((ch, i) => {
             const isLast = i === chars.length - 1
             return (
-              <span
+              <img
                 key={i}
                 ref={isLast ? paCharRef : undefined}
                 className={`onb-char${
                   (isLast ? paFading : othersFaded) ? ' onb-fade-out' : ''
                 }`}
                 style={isLast ? paStyle : undefined}
-              >
-                {ch}
-              </span>
+                src={onbSvgPath(ONB_CHAR_SVG[ch] ?? 'pa-0')}
+                alt={ch}
+                draggable={false}
+              />
             )
           })}
         </div>
+      )}
+
+      {pa1Rect && (
+        <img
+          className={`onb-pa1${pa1Fading ? ' onb-fade-out' : ''}`}
+          src={onbSvgPath('pa-1')}
+          alt="ぱ"
+          draggable={false}
+          style={{
+            left: pa1Rect.left,
+            top: pa1Rect.top,
+            width: pa1Rect.width,
+            height: pa1Rect.height,
+          }}
+        />
       )}
 
       {papiPos && (
