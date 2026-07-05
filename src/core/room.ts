@@ -6,11 +6,10 @@ import {
   push,
   query,
   ref,
-  remove,
   runTransaction,
   serverTimestamp,
+  set,
   startAt,
-  update,
 } from 'firebase/database'
 import { db } from './firebase'
 
@@ -88,13 +87,22 @@ export async function joinRoom(options: JoinRoomOptions): Promise<RoomHandle> {
   const myPresenceRef = ref(db, `${ROOM_PATH}/presence/${userId}`)
   const postsRef = ref(db, `${ROOM_PATH}/posts`)
 
+  // この join の所有権ID。古い join（React StrictMode の二重マウント等）の
+  // leave() が、新しい join の在室エントリを消してしまわないようにする
+  const sessionId = `s_${Math.random().toString(36).slice(2, 10)}`
+  const presenceValue = () => ({
+    color: options.color,
+    lastActive: Date.now(),
+    sessionId,
+  })
+
   // 満室（MAX_ROOM_USERS）チェックつきで在室登録する
   const result = await runTransaction(presenceRef, (current) => {
     const users = (current ?? {}) as Record<string, unknown>
     if (!users[userId] && Object.keys(users).length >= MAX_ROOM_USERS) {
       return // 満室 → トランザクション中止
     }
-    users[userId] = { color: options.color, lastActive: Date.now() }
+    users[userId] = presenceValue()
     return users
   })
 
@@ -107,9 +115,9 @@ export async function joinRoom(options: JoinRoomOptions): Promise<RoomHandle> {
   const disconnect = onDisconnect(myPresenceRef)
   void disconnect.remove()
 
-  // 生存確認の定期更新
+  // 生存確認の定期更新（常に完全なエントリを書き、部分的な復活を防ぐ）
   const heartbeat = setInterval(() => {
-    void update(myPresenceRef, { lastActive: Date.now() })
+    void set(myPresenceRef, presenceValue())
   }, PRESENCE_HEARTBEAT_MS)
 
   // 在室一覧の購読（自分を除く）
@@ -158,7 +166,14 @@ export async function joinRoom(options: JoinRoomOptions): Promise<RoomHandle> {
     unsubscribePresence()
     unsubscribePosts()
     void disconnect.cancel()
-    void remove(myPresenceRef)
+    // 自分のセッションが書いたエントリのときだけ削除する
+    // （新しい join に取って代わられていたら触らない）
+    void runTransaction(myPresenceRef, (current) => {
+      if (current && (current as { sessionId?: string }).sessionId !== sessionId) {
+        return current
+      }
+      return null
+    })
   }
 
   const post = (pagyo: string) => {
@@ -168,7 +183,7 @@ export async function joinRoom(options: JoinRoomOptions): Promise<RoomHandle> {
       pagyo,
       createdAt: serverTimestamp(),
     })
-    void update(myPresenceRef, { lastActive: Date.now() })
+    void set(myPresenceRef, presenceValue())
   }
 
   return { full: false, post, leave }
