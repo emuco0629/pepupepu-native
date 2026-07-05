@@ -3,6 +3,31 @@
 パ行変換SNSアプリのネイティブ版。Vite + React + TypeScript + Capacitor (iOS)。
 開発は Windows、iOS ビルドは Codemagic（クラウドMac）で行う。
 
+## 現在の状態と次のステップ
+
+### 完成済み
+- オンボーディング（誕生シーン。公式SVG素材・タップでスキップ）
+- ルーム画面（夜空・さまようパピ・入力欄）
+- のろし演出（入力欄内で変身 → パピの頭上からS字カーブの糸 → 星に定着）
+- 音（パ行ボイス・220msリズム・iOSアンロック対応）
+- アプリアイコン（iOS / favicon / apple-touch-icon）
+- codemagic.yaml（TestFlight 配信ワークフロー）
+- GitHub 連携（https://github.com/emuco0629/pepupepu-native）
+
+### Apple 待ち: Developer Program の反映（保留中）
+反映されたらやること:
+1. App Store Connect API キーを作成 → Codemagic の Integrations に登録
+   → `codemagic.yaml` のキー名（`codemagic_api_key`）を実名に変更
+2. App Store Connect でアプリを作成（Bundle ID: `com.pepupepu.app`）
+3. Codemagic で初ビルド → TestFlight
+
+### Fable 後の実装予定
+- Firebase 同期
+- 7人部屋
+- ボット3体
+- 時間帯背景
+- オンボーディングのスキップ永続化
+
 ## コマンド
 
 - `npm run dev` … ローカル開発サーバー
