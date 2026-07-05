@@ -55,6 +55,13 @@
    （`src/index.css` の `.room-bottom` など）に適用して
    操作要素だけがノッチ・ホームバーを避ける。
 
+## プライバシー原則（ルーム同期）
+
+データベース（Firebase Realtime Database）に保存するのは
+**変換後のパ行文字列（pagyo）のみ**。変換前の原文は、いかなる形でも
+送信・保存しない。`src/core/room.ts` の `post()` が受け取るのは
+pagyo だけであり、原文がネットワークへ到達する経路をコード上作らないこと。
+
 ## ディレクトリ構成
 
 ```
@@ -64,6 +71,8 @@ src/
     audio.ts       Web Audioコア・アンロック処理・パ行ボイス再生（ルール2）
     constants.ts   定数（NOROSHI_INTERVAL_MS など）
     noroshi.ts     のろしリズムスケジューラ（220ms間隔発火）
+    firebase.ts    Firebase 設定の一元化（RTDB は asia-southeast1）
+    room.ts        ルーム同期（rooms/lobby・最大7人・匿名ID・プライバシー原則）
     convert/       パ行変換エンジン（kuromoji）
   components/  … UI コンポーネント
     Papi.tsx       パピ（キャラクター）。design/papi/ の公式SVGが唯一の原典

@@ -150,6 +150,12 @@ body {
   will-change: transform;
 }
 
+/* 自分のパピの目印（レイアウトに影響させない）。
+   オンボーディングの着地位置の特定と、他のパピより手前に描くために使う */
+.papi-mine {
+  display: contents;
+}
+
 .room-form {
   display: flex;
   gap: 10px;

@@ -20,6 +20,8 @@ interface WanderingPapiProps {
   size?: number
   /** true の間はその場に立ち止まる（発話中）。解除でさまよい再開 */
   paused?: boolean
+  /** 動きの位相オフセット（秒）。複数のパピが同じ動きにならないようにする */
+  phase?: number
   /** パピの中心 x 座標（親要素基準・px）の出力先 */
   xRef?: { current: number }
 }
@@ -31,6 +33,7 @@ function WanderingPapi({
   wingColor,
   size = 72,
   paused = false,
+  phase = 0,
   xRef,
 }: WanderingPapiProps) {
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -54,7 +57,7 @@ function WanderingPapi({
         tAccum += now - lastNow
       }
       lastNow = now
-      const t = tAccum / 1000
+      const t = tAccum / 1000 + phase
       const parentWidth = el.parentElement?.clientWidth ?? window.innerWidth
       const half = size / 2
       const range = Math.max(0, parentWidth / 2 - half - 12)
@@ -70,7 +73,7 @@ function WanderingPapi({
 
     rafId = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(rafId)
-  }, [size, xRef])
+  }, [size, phase, xRef])
 
   return (
     <div ref={wrapRef} className="papi-wander">

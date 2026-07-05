@@ -10,6 +10,8 @@ import { NOROSHI_INTERVAL_MS } from './core/constants'
 import { initTokenizer, safeConvertToPagyo } from './core/convert/papipupepo'
 import { startNoroshi } from './core/noroshi'
 import type { NoroshiHandle } from './core/noroshi'
+import { joinRoom } from './core/room'
+import type { RoomHandle, RoomPost, RoomUser } from './core/room'
 import OnboardingScene from './components/OnboardingScene'
 import WanderingPapi from './components/WanderingPapi'
 import { mouthForChar } from './components/papiMouth'
@@ -35,12 +37,24 @@ import type { PapiMouth } from './components/papiMouth'
 const PAPI_COLOR = '#FFFFFF'
 
 /** 白い体のパピだけ口を薄ピンクにする（白以外の口は白のまま） */
-const PAPI_MOUTH_COLOR =
-  PAPI_COLOR.toLowerCase() === '#ffffff' ? '#FFD3DF' : 'white'
+const mouthColorFor = (color: string) =>
+  color.toLowerCase() === '#ffffff' ? '#FFD3DF' : 'white'
 
 /** 白い体のとき、羽にごく薄い明度差をつけて体との重なりを見せる */
-const PAPI_WING_COLOR =
-  PAPI_COLOR.toLowerCase() === '#ffffff' ? '#EFEAF7' : undefined
+const wingColorFor = (color: string) =>
+  color.toLowerCase() === '#ffffff' ? '#EFEAF7' : undefined
+
+const PAPI_MOUTH_COLOR = mouthColorFor(PAPI_COLOR)
+const PAPI_WING_COLOR = wingColorFor(PAPI_COLOR)
+
+/** ユーザーIDから決まる、さまよいの位相（秒）。パピごとに動きがずれる */
+function wanderPhaseFor(id: string): number {
+  let hash = 0
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash * 31 + id.charCodeAt(i)) | 0
+  }
+  return Math.abs(hash) % 60
+}
 
 /** のろし文字が星に変わるまでの上昇時間（ms）。ゆったり漂う速さ */
 const RISE_DURATION_MS = 4800
@@ -145,7 +159,18 @@ interface Star {
   opacity: number
   twinkleDuration: number
   twinkleDelay: number
+  /** 投稿したパピの色をわずかに帯びた白 */
+  color: string
+  glow: string
 }
+
+/** 星の色（投稿したパピの色をわずかに帯びた白） */
+interface StarTint {
+  color: string
+  glow: string
+}
+
+const OWN_STAR_TINT: StarTint = { color: STAR_COLOR, glow: STAR_GLOW }
 
 function App() {
   // 起動時はオンボーディング（誕生シーン）。ルーム画面は背後にマウントして
@@ -157,8 +182,22 @@ function App() {
   const [mouth, setMouth] = useState<PapiMouth>('none')
   const [risingChars, setRisingChars] = useState<RisingChar[]>([])
   const [stars, setStars] = useState<Star[]>([])
+  /** 在室中の他ユーザー（自分は含まない） */
+  const [others, setOthers] = useState<RoomUser[]>([])
+  /** 発話のためだけに現れている不在ユーザー（発話が終わると退場） */
+  const [visitors, setVisitors] = useState<RoomUser[]>([])
+  const [otherMouths, setOtherMouths] = useState<Record<string, PapiMouth>>({})
+  const [otherSpeaking, setOtherSpeaking] = useState<Record<string, boolean>>(
+    {},
+  )
 
   const noroshiRef = useRef<NoroshiHandle | null>(null)
+  const roomRef = useRef<RoomHandle | null>(null)
+  /** 他ユーザーのパピの現在位置（papi-strip 基準・px） */
+  const otherXRefs = useRef(new Map<string, { current: number }>())
+  /** ユーザーごとの発話キュー（同じ人の投稿が重なったら順番に演じる） */
+  const speechChainsRef = useRef(new Map<string, Promise<void>>())
+  const activeNoroshiRef = useRef(new Set<NoroshiHandle>())
   /** パピの現在の中心 x（papi-strip 基準・px）。WanderingPapi が毎フレーム更新 */
   const papiXRef = useRef(0)
   const layerRef = useRef<HTMLDivElement>(null)
@@ -184,12 +223,44 @@ function App() {
       .catch((e) => console.error('辞書ロード失敗', e))
 
     const timers = timersRef.current
+    const activeNoroshi = activeNoroshiRef.current
     return () => {
       removeUnlockHandler()
       noroshiRef.current?.stop()
+      for (const h of activeNoroshi) h.stop()
       for (const t of timers) clearInterval(t)
       cancelAnimationFrame(flightRafRef.current)
     }
+  }, [])
+
+  // ルームへの入室（在室登録・他ユーザーの投稿と在室一覧の購読）。
+  // 接続に失敗しても・満室でも、ローカルの投稿演出はそのまま動く
+  useEffect(() => {
+    let cancelled = false
+    let handle: RoomHandle | null = null
+    joinRoom({
+      color: PAPI_COLOR,
+      onPresence: (users) => setOthers(users),
+      onPost: (post) => queueRemotePost(post),
+    })
+      .then((h) => {
+        if (cancelled) {
+          h.leave()
+          return
+        }
+        handle = h
+        roomRef.current = h
+        if (h.full) {
+          console.info('部屋が満室のため、ローカルのみで動作します')
+        }
+      })
+      .catch((e) => console.error('ルーム接続に失敗（ローカルで続行）', e))
+    return () => {
+      cancelled = true
+      handle?.leave()
+      roomRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   /** 飛行中の全文字を同じ曲線に沿って進める rAF ループ */
@@ -219,7 +290,7 @@ function App() {
   }
 
   /** のろし文字を1つ発射し、上昇し終わったら星に変える */
-  const spawnRisingChar = (char: string, path: NoroshiPath) => {
+  const spawnRisingChar = (char: string, path: NoroshiPath, tint: StarTint) => {
     if (/^[\s　]$/.test(char)) return
     const id = nextIdRef.current++
     flightMetaRef.current.set(id, { born: performance.now(), path })
@@ -241,10 +312,93 @@ function App() {
           opacity: 0.65 + Math.random() * 0.35,
           twinkleDuration: 2.4 + Math.random() * 3,
           twinkleDelay: 0.7 + Math.random() * 3,
+          color: tint.color,
+          glow: tint.glow,
         },
       ])
     }, RISE_DURATION_MS)
     timersRef.current.add(timer)
+  }
+
+  /** 他ユーザーのパピの位置 ref を取得（なければ作る） */
+  const otherXRef = (id: string) => {
+    let r = otherXRefs.current.get(id)
+    if (!r) {
+      r = { current: 0 }
+      otherXRefs.current.set(id, r)
+    }
+    return r
+  }
+
+  /**
+   * 他ユーザーの投稿を演じる: その人のパピが立ち止まり、
+   * 自分ののろしと同じ演出で発話し、文字は星になって残る。
+   */
+  const performRemoteSpeech = (post: RoomPost) =>
+    new Promise<void>((resolve) => {
+      // 登場直後は位置が定まっていないことがあるので少し待ってから発話
+      const startTimer = setTimeout(() => {
+        timersRef.current.delete(startTimer)
+        setOtherSpeaking((prev) => ({ ...prev, [post.userId]: true }))
+
+        const layerRect = layerRef.current?.getBoundingClientRect()
+        const stripRect = stripRef.current?.getBoundingClientRect()
+        const startX =
+          (stripRect && layerRect ? stripRect.left - layerRect.left : 0) +
+          (otherXRefs.current.get(post.userId)?.current ?? 60)
+        const path = layerRect
+          ? makeNoroshiPath(
+              startX,
+              (stripRect?.top ?? 0) - layerRect.top + 4,
+              layerRect.width,
+              layerRect.height,
+            )
+          : makeNoroshiPath(60, 640, 375, 812)
+        const tint: StarTint = {
+          color: tintTowardWhite(post.color, 0.8),
+          glow: tintTowardWhite(post.color, 0.45),
+        }
+
+        const handle = startNoroshi(
+          post.pagyo,
+          ({ char }) => {
+            // 他のパピの声は少し高く・控えめに鳴らす
+            playPagyoChar(char, { volume: 2.0, playbackRate: 1.3 })
+            setOtherMouths((prev) => ({
+              ...prev,
+              [post.userId]: mouthForChar(char),
+            }))
+            spawnRisingChar(char, path, tint)
+          },
+          () => {
+            activeNoroshiRef.current.delete(handle)
+            setOtherMouths((prev) => ({ ...prev, [post.userId]: 'none' }))
+            setOtherSpeaking((prev) => ({ ...prev, [post.userId]: false }))
+            // 発話のためだけに現れていた場合はここで退場
+            // （在室中なら presence 側の一覧に残る）
+            setVisitors((prev) => prev.filter((v) => v.id !== post.userId))
+            resolve()
+          },
+        )
+        activeNoroshiRef.current.add(handle)
+      }, NOROSHI_INTERVAL_MS * 2)
+      timersRef.current.add(startTimer)
+    })
+
+  /** 受信した投稿をユーザーごとの発話キューに積む */
+  const queueRemotePost = (post: RoomPost) => {
+    // 投稿者を画面に登場させる（不在なら発話の間だけ現れる）
+    setVisitors((prev) =>
+      prev.some((v) => v.id === post.userId)
+        ? prev
+        : [...prev, { id: post.userId, color: post.color }],
+    )
+    const prevChain =
+      speechChainsRef.current.get(post.userId) ?? Promise.resolve()
+    speechChainsRef.current.set(
+      post.userId,
+      prevChain.then(() => performRemoteSpeech(post)),
+    )
   }
 
   /**
@@ -295,6 +449,10 @@ function App() {
     setPhase('busy') // パピはここから発話終了まで立ち止まる
     const pagyo = safeConvertToPagyo(original)
 
+    // ルームへ送信するのは変換後のパ行文字列のみ（プライバシー原則:
+    // 原文 original は、いかなる形でもネットワークに送らない）
+    roomRef.current?.post(pagyo)
+
     // ボイスの準備（デコード完了 + AudioContext running、タイムアウト付き）は
     // 変身アニメーションの裏で並行して待ち、体感の待ち時間をゼロに近づける
     const voicesReady = whenVoicesReady()
@@ -319,7 +477,7 @@ function App() {
       ({ char }) => {
         playPagyoChar(char)
         setMouth(mouthForChar(char))
-        spawnRisingChar(char, path)
+        spawnRisingChar(char, path, OWN_STAR_TINT)
         // 先頭の文字が飛び立ち、入力欄に残っている文字が減っていく
         setText((prev) => Array.from(prev).slice(1).join(''))
       },
@@ -356,6 +514,8 @@ function App() {
                 '--star-opacity': s.opacity,
                 '--twinkle-duration': `${s.twinkleDuration}s`,
                 '--twinkle-delay': `${s.twinkleDelay}s`,
+                '--star-color': s.color,
+                '--star-glow': s.glow,
               } as CSSProperties
             }
           />
@@ -364,15 +524,35 @@ function App() {
 
       <div className="room-bottom">
         <div className="papi-strip" ref={stripRef}>
-          <WanderingPapi
-            mouth={mouth}
-            color={PAPI_COLOR}
-            mouthColor={PAPI_MOUTH_COLOR}
-            wingColor={PAPI_WING_COLOR}
-            size={72}
-            paused={phase !== 'idle' || scene !== 'room'}
-            xRef={papiXRef}
-          />
+          {/* 在室中の他ユーザー + 発話のために現れた不在ユーザーのパピ */}
+          {[
+            ...others,
+            ...visitors.filter((v) => !others.some((o) => o.id === v.id)),
+          ].map((u) => (
+            <WanderingPapi
+              key={u.id}
+              mouth={otherMouths[u.id] ?? 'none'}
+              color={u.color}
+              mouthColor={mouthColorFor(u.color)}
+              wingColor={wingColorFor(u.color)}
+              size={64}
+              paused={scene !== 'room' || !!otherSpeaking[u.id]}
+              phase={wanderPhaseFor(u.id)}
+              xRef={otherXRef(u.id)}
+            />
+          ))}
+          {/* 自分のパピ（最後に描画して手前に。papi-mine は着地位置の目印） */}
+          <span className="papi-mine">
+            <WanderingPapi
+              mouth={mouth}
+              color={PAPI_COLOR}
+              mouthColor={PAPI_MOUTH_COLOR}
+              wingColor={PAPI_WING_COLOR}
+              size={72}
+              paused={phase !== 'idle' || scene !== 'room'}
+              xRef={papiXRef}
+            />
+          </span>
         </div>
         <form className="room-form" onSubmit={handleSubmit}>
           <input
@@ -429,7 +609,7 @@ function App() {
           papiWingColor={PAPI_WING_COLOR}
           getLandingRect={() =>
             stripRef.current
-              ?.querySelector('.papi-wander')
+              ?.querySelector('.papi-mine .papi-wander')
               ?.getBoundingClientRect() ?? null
           }
           onFinish={() => setScene('room')}
