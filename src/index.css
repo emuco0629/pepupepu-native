@@ -271,14 +271,6 @@ body {
   will-change: transform, opacity;
 }
 
-/* 誕生の絵 pa-1.svg（丸に顔が宿った「ぱ」）。拡大後の pa-0 に重ねる */
-.onb-pa1 {
-  position: absolute;
-  animation: onb-appear 0.9s ease both;
-  transition: opacity 0.9s ease;
-  user-select: none;
-  pointer-events: none;
-}
 
 .onb-papi {
   position: absolute;
@@ -301,10 +293,6 @@ body {
 
 .onb-papi-inner {
   transition: transform 0.9s ease;
-}
-
-.onb-papi-inner.onb-floated {
-  transform: translateY(-10px);
 }
 
 .onb-welcome {

@@ -34,22 +34,9 @@ import type { PapiMouth } from './components/papiMouth'
 /** 現在のユーザーのパピの色（ユーザーごとに変わる想定。参照元はここだけ） */
 const PAPI_COLOR = '#FFFFFF'
 
-/**
- * 白い体のパピは、口を背景（夜空）色でくり抜いたように見せる。
- * ルームのパピは最下段バンドの上にいるので、その色に合わせる
- * （index.css の夜空グラデーション最下段 #9a89c7 と同期）。
- * 白以外の体の口は白のまま。
- */
+/** 白い体のパピだけ口を薄ピンクにする（白以外の口は白のまま） */
 const PAPI_MOUTH_COLOR =
-  PAPI_COLOR.toLowerCase() === '#ffffff' ? '#9A89C7' : 'white'
-
-/**
- * オンボーディング中のパピは画面中央（夜空の2段目バンドの上）にいるため、
- * 口のくり抜き色はそのバンド色に合わせる（index.css の #4e4379 と同期。
- * public/onboarding/pa-1.svg の丸キャラの口も同色）。
- */
-const ONB_PAPI_MOUTH_COLOR =
-  PAPI_COLOR.toLowerCase() === '#ffffff' ? '#4E4379' : 'white'
+  PAPI_COLOR.toLowerCase() === '#ffffff' ? '#FFD3DF' : 'white'
 
 /** 白い体のとき、羽にごく薄い明度差をつけて体との重なりを見せる */
 const PAPI_WING_COLOR =
@@ -262,8 +249,9 @@ function App() {
 
   /**
    * 入力欄の中で、文字を先頭から1文字ずつパ行に置き換えていく。
-   * テンポはパ音のリズム（NOROSHI_INTERVAL_MS）に揃え、化けるたびに
-   * その文字の音を鳴らす（ボイス未準備なら黙って進む）。
+   * テンポはパ音のリズム（NOROSHI_INTERVAL_MS）に揃える。
+   * 化けの段階は無音（表示のみ）。パ音が鳴るのは、のろしとして
+   * 文字が立ちのぼる時（startNoroshi の onTick）だけ。
    * 元の文字列とパ行文字列の長さが違っても、消費位置を比例配分して
    * 「先頭から化けていく」見え方を保つ。
    */
@@ -286,7 +274,6 @@ function App() {
         setText(
           pagyoChars.slice(0, k).join('') + origChars.slice(consumed).join(''),
         )
-        playPagyoChar(pagyoChars[k - 1])
         if (k >= total) {
           clearInterval(timer)
           timersRef.current.delete(timer)
@@ -438,7 +425,7 @@ function App() {
       {scene === 'onboarding' && (
         <OnboardingScene
           papiColor={PAPI_COLOR}
-          papiMouthColor={ONB_PAPI_MOUTH_COLOR}
+          papiMouthColor={PAPI_MOUTH_COLOR}
           papiWingColor={PAPI_WING_COLOR}
           getLandingRect={() =>
             stripRef.current
