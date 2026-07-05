@@ -10,6 +10,14 @@ import { NOROSHI_INTERVAL_MS } from './core/constants'
 import { initTokenizer, safeConvertToPagyo } from './core/convert/papipupepo'
 import { startNoroshi } from './core/noroshi'
 import type { NoroshiHandle } from './core/noroshi'
+import {
+  GUIDE_COLOR,
+  getStoredPapiColor,
+  mouthColorFor,
+  randomPaletteColor,
+  storePapiColor,
+  wingColorFor,
+} from './core/papiColor'
 import { joinRoom } from './core/room'
 import type { RoomHandle, RoomPost, RoomUser } from './core/room'
 import OnboardingScene from './components/OnboardingScene'
@@ -33,20 +41,6 @@ import type { PapiMouth } from './components/papiMouth'
  *   5. 発話が終わるとパピはさまよいを再開する
  */
 
-/** 現在のユーザーのパピの色（ユーザーごとに変わる想定。参照元はここだけ） */
-const PAPI_COLOR = '#FFFFFF'
-
-/** 白い体のパピだけ口を薄ピンクにする（白以外の口は白のまま） */
-const mouthColorFor = (color: string) =>
-  color.toLowerCase() === '#ffffff' ? '#FFD3DF' : 'white'
-
-/** 白い体のとき、羽にごく薄い明度差をつけて体との重なりを見せる */
-const wingColorFor = (color: string) =>
-  color.toLowerCase() === '#ffffff' ? '#EFEAF7' : undefined
-
-const PAPI_MOUTH_COLOR = mouthColorFor(PAPI_COLOR)
-const PAPI_WING_COLOR = wingColorFor(PAPI_COLOR)
-
 /** ユーザーIDから決まる、さまよいの位相（秒）。パピごとに動きがずれる */
 function wanderPhaseFor(id: string): number {
   let hash = 0
@@ -67,8 +61,13 @@ function tintTowardWhite(papiColor: string, whiteRatio: number): string {
   return `rgb(${mix(r)}, ${mix(g)}, ${mix(b)})`
 }
 
-const STAR_COLOR = tintTowardWhite(PAPI_COLOR, 0.8)
-const STAR_GLOW = tintTowardWhite(PAPI_COLOR, 0.45)
+/** 星の色（投稿したパピの色をわずかに帯びた白） */
+function starTintFor(papiColor: string): StarTint {
+  return {
+    color: tintTowardWhite(papiColor, 0.8),
+    glow: tintTowardWhite(papiColor, 0.45),
+  }
+}
 
 /**
  * のろしの上昇経路（見えないS字カーブ）。投稿ごとに1本生成する。
@@ -164,18 +163,20 @@ interface Star {
   glow: string
 }
 
-/** 星の色（投稿したパピの色をわずかに帯びた白） */
 interface StarTint {
   color: string
   glow: string
 }
 
-const OWN_STAR_TINT: StarTint = { color: STAR_COLOR, glow: STAR_GLOW }
-
 function App() {
   // 起動時はオンボーディング（誕生シーン）。ルーム画面は背後にマウントして
   // 夜空を共有し、終了時にパピがシームレスに引き継がれる
   const [scene, setScene] = useState<'onboarding' | 'room'>('onboarding')
+  // 自分のパピの色。誕生時にパレットからランダムに決まり localStorage に残る。
+  // まだ決まっていない初回は案内役の白で誕生シーンが進む
+  const [papiColor, setPapiColor] = useState(
+    () => getStoredPapiColor() ?? GUIDE_COLOR,
+  )
   const [dictReady, setDictReady] = useState(false)
   const [text, setText] = useState('')
   const [phase, setPhase] = useState<'idle' | 'busy'>('idle')
@@ -193,6 +194,11 @@ function App() {
 
   const noroshiRef = useRef<NoroshiHandle | null>(null)
   const roomRef = useRef<RoomHandle | null>(null)
+  /** 入室エフェクト（マウント時1回）から最新の色を読むための ref */
+  const papiColorRef = useRef(papiColor)
+  useEffect(() => {
+    papiColorRef.current = papiColor
+  }, [papiColor])
   /** 他ユーザーのパピの現在位置（papi-strip 基準・px） */
   const otherXRefs = useRef(new Map<string, { current: number }>())
   /** ユーザーごとの発話キュー（同じ人の投稿が重なったら順番に演じる） */
@@ -239,7 +245,7 @@ function App() {
     let cancelled = false
     let handle: RoomHandle | null = null
     joinRoom({
-      color: PAPI_COLOR,
+      color: papiColorRef.current,
       onPresence: (users) => setOthers(users),
       onPost: (post) => queueRemotePost(post),
     })
@@ -440,6 +446,18 @@ function App() {
     })
   }
 
+  /**
+   * ユーザーの色を確定して返す。初回はパレットからランダムに選んで
+   * localStorage に保存、以降は保存済みの色。ルームの在室情報にも反映する
+   */
+  const ensurePapiColor = () => {
+    const color = getStoredPapiColor() ?? randomPaletteColor()
+    storePapiColor(color)
+    setPapiColor(color)
+    roomRef.current?.setColor(color)
+    return color
+  }
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (phase !== 'idle' || !dictReady) return
@@ -477,7 +495,7 @@ function App() {
       ({ char }) => {
         playPagyoChar(char)
         setMouth(mouthForChar(char))
-        spawnRisingChar(char, path, OWN_STAR_TINT)
+        spawnRisingChar(char, path, starTintFor(papiColorRef.current))
         // 先頭の文字が飛び立ち、入力欄に残っている文字が減っていく
         setText((prev) => Array.from(prev).slice(1).join(''))
       },
@@ -494,9 +512,9 @@ function App() {
       className={`app${scene === 'onboarding' ? ' app-onboarding' : ''}`}
       style={
         {
-          '--papi-color': PAPI_COLOR,
-          '--star-color': STAR_COLOR,
-          '--star-glow': STAR_GLOW,
+          '--papi-color': papiColor,
+          '--star-color': starTintFor(papiColor).color,
+          '--star-glow': starTintFor(papiColor).glow,
         } as CSSProperties
       }
     >
@@ -545,9 +563,9 @@ function App() {
           <span className="papi-mine">
             <WanderingPapi
               mouth={mouth}
-              color={PAPI_COLOR}
-              mouthColor={PAPI_MOUTH_COLOR}
-              wingColor={PAPI_WING_COLOR}
+              color={papiColor}
+              mouthColor={mouthColorFor(papiColor)}
+              wingColor={wingColorFor(papiColor)}
               size={72}
               paused={phase !== 'idle' || scene !== 'room'}
               xRef={papiXRef}
@@ -604,15 +622,18 @@ function App() {
 
       {scene === 'onboarding' && (
         <OnboardingScene
-          papiColor={PAPI_COLOR}
-          papiMouthColor={PAPI_MOUTH_COLOR}
-          papiWingColor={PAPI_WING_COLOR}
+          chooseFinalColor={ensurePapiColor}
           getLandingRect={() =>
             stripRef.current
               ?.querySelector('.papi-mine .papi-wander')
               ?.getBoundingClientRect() ?? null
           }
-          onFinish={() => setScene('room')}
+          onFinish={() => {
+            // 降下前にスキップされても色は必ず確定させる
+            // （白は案内役の予約色なのでユーザーの色にはしない）
+            ensurePapiColor()
+            setScene('room')
+          }}
         />
       )}
     </div>

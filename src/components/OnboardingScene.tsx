@@ -5,6 +5,12 @@ import { playPagyoChar, whenVoicesReady } from '../core/audio'
 import { NOROSHI_INTERVAL_MS } from '../core/constants'
 import { safeConvertToPagyo } from '../core/convert/papipupepo'
 import { startNoroshi } from '../core/noroshi'
+import {
+  GUIDE_COLOR,
+  lerpHexColor,
+  mouthColorFor,
+  wingColorFor,
+} from '../core/papiColor'
 import type { NoroshiHandle } from '../core/noroshi'
 import Papi from './Papi'
 import { mouthForChar } from './papiMouth'
@@ -56,18 +62,18 @@ const ONB_CHAR_SVG: Record<string, string> = {
 const onbSvgPath = (name: string) => assetPath(`onboarding/${name}.svg`)
 
 interface OnboardingSceneProps {
-  papiColor: string
-  papiMouthColor: string
-  papiWingColor?: string
+  /**
+   * 降下開始時に呼ばれ、ユーザーの色（パレットから選ばれ保存された色）を返す。
+   * 誕生パピは案内役の白から、降下の間にこの色へゆっくり変化する
+   */
+  chooseFinalColor: () => string
   /** ルーム画面のパピの定位置（降下先）。降下開始時に呼ばれる */
   getLandingRect: () => DOMRect | null
   onFinish: () => void
 }
 
 function OnboardingScene({
-  papiColor,
-  papiMouthColor,
-  papiWingColor,
+  chooseFinalColor,
   getLandingRect,
   onFinish,
 }: OnboardingSceneProps) {
@@ -84,6 +90,9 @@ function OnboardingScene({
   const [eyes, setEyes] = useState(false)
   const [wings, setWings] = useState(false)
   const [flapping, setFlapping] = useState(false)
+  /** 誕生パピの体色。案内役の白で生まれ、降下の間にユーザーの色へ変化する */
+  const [bodyColor, setBodyColor] = useState(GUIDE_COLOR)
+  const colorRafRef = useRef(0)
   const [mouth, setMouth] = useState<PapiMouth>('none')
   const [welcomeText, setWelcomeText] = useState('')
   const [welcomeFading, setWelcomeFading] = useState(false)
@@ -104,8 +113,21 @@ function OnboardingScene({
     return () => {
       noroshiRef.current?.stop()
       for (const t of timers) clearTimeout(t)
+      cancelAnimationFrame(colorRafRef.current)
     }
   }, [])
+
+  /** 体色を from → to へゆっくり補間する（羽ばたきのコマ切替でも色が飛ばない） */
+  const animateBodyColor = (to: string, durationMs: number) => {
+    const from = GUIDE_COLOR
+    const t0 = performance.now()
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / durationMs)
+      setBodyColor(lerpHexColor(from, to, t))
+      if (t < 1) colorRafRef.current = requestAnimationFrame(step)
+    }
+    colorRafRef.current = requestAnimationFrame(step)
+  }
 
   const wait = (ms: number) =>
     new Promise<void>((resolve) => {
@@ -216,8 +238,11 @@ function OnboardingScene({
     })
     await wait(BEAT * 4)
 
-    // 8: ルーム画面のパピの定位置へ降りていく
+    // 8: ルーム画面のパピの定位置へ降りていく。
+    //    その間に、案内役の白からユーザーの色（パレット8色から選ばれ
+    //    localStorage に保存された色）へゆっくり変化する
     setWelcomeFading(true)
+    animateBodyColor(chooseFinalColor(), 1600)
     const landing = getLandingRect()
     if (landing) {
       const currentRootRect = root.getBoundingClientRect()
@@ -285,9 +310,9 @@ function OnboardingScene({
           <div className="onb-papi-inner">
             <Papi
               mouth={mouth}
-              color={papiColor}
-              mouthColor={papiMouthColor}
-              wingColor={papiWingColor}
+              color={bodyColor}
+              mouthColor={mouthColorFor(bodyColor)}
+              wingColor={wingColorFor(bodyColor)}
               wings={wings}
               eyes={eyes}
               flapping={flapping}

@@ -56,6 +56,8 @@ export interface RoomHandle {
   readonly full: boolean
   /** 変換後のパ行文字列を投稿する（原文は絶対に渡さないこと） */
   post: (pagyo: string) => void
+  /** 自分の色を変更する（誕生時の色決定・将来の色変え機能用） */
+  setColor: (color: string) => void
   leave: () => void
 }
 
@@ -90,8 +92,9 @@ export async function joinRoom(options: JoinRoomOptions): Promise<RoomHandle> {
   // この join の所有権ID。古い join（React StrictMode の二重マウント等）の
   // leave() が、新しい join の在室エントリを消してしまわないようにする
   const sessionId = `s_${Math.random().toString(36).slice(2, 10)}`
+  let currentColor = options.color
   const presenceValue = () => ({
-    color: options.color,
+    color: currentColor,
     lastActive: Date.now(),
     sessionId,
   })
@@ -108,7 +111,7 @@ export async function joinRoom(options: JoinRoomOptions): Promise<RoomHandle> {
 
   if (!result.committed) {
     // 満室: ローカルのみで動作（投稿の送受信はしない）
-    return { full: true, post: () => {}, leave: () => {} }
+    return { full: true, post: () => {}, setColor: () => {}, leave: () => {} }
   }
 
   // 切断時（タブを閉じる等）に在室から自動削除
@@ -179,12 +182,17 @@ export async function joinRoom(options: JoinRoomOptions): Promise<RoomHandle> {
   const post = (pagyo: string) => {
     void push(postsRef, {
       userId,
-      color: options.color,
+      color: currentColor,
       pagyo,
       createdAt: serverTimestamp(),
     })
     void set(myPresenceRef, presenceValue())
   }
 
-  return { full: false, post, leave }
+  const setColor = (color: string) => {
+    currentColor = color
+    void set(myPresenceRef, presenceValue())
+  }
+
+  return { full: false, post, setColor, leave }
 }
