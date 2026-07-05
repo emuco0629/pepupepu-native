@@ -58,7 +58,10 @@ function WanderingPapi({
       }
       lastNow = now
       const t = tAccum / 1000 + phase
-      const parentWidth = el.parentElement?.clientWidth ?? window.innerWidth
+      // 可動域はストリップ（最も近い positioned 祖先）の幅。
+      // parentElement だと display: contents のラッパで幅0になるため使わない
+      const host = (el.offsetParent as HTMLElement | null) ?? el.parentElement
+      const parentWidth = host?.clientWidth || window.innerWidth
       const half = size / 2
       const range = Math.max(0, parentWidth / 2 - half - 12)
       // 振幅の合計を 1 に収めて範囲内を保証しつつ、2波の合成でゆらぐ

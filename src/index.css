@@ -278,6 +278,18 @@ body {
 }
 
 
+/* 拡大用の「ぱ」: 拡大後の実寸でレンダリングし、1/scale の縮小から
+   等倍へ戻すことで、iOS Safari でも輪郭がシャープなまま拡大される */
+.onb-pa-grow {
+  position: absolute;
+  transition:
+    transform 1.5s ease-in-out,
+    opacity 1s ease;
+  will-change: transform, opacity;
+  pointer-events: none;
+  user-select: none;
+}
+
 .onb-papi {
   position: absolute;
   transform-origin: 0 0;

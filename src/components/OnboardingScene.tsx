@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
 import { assetPath } from '../core/assetPath'
 import { playPagyoChar, whenVoicesReady } from '../core/audio'
 import { NOROSHI_INTERVAL_MS } from '../core/constants'
@@ -81,7 +80,16 @@ function OnboardingScene({
   const [titleGone, setTitleGone] = useState(false)
   const [chars, setChars] = useState<string[]>([])
   const [othersFaded, setOthersFaded] = useState(false)
-  const [paStyle, setPaStyle] = useState<CSSProperties>()
+  /** 拡大用の「ぱ」(最終実寸でレンダリングし、縮小状態から等倍へ戻す) */
+  const [paGrow, setPaGrow] = useState<{
+    left: number
+    top: number
+    width: number
+    height: number
+  } | null>(null)
+  const [paGrowTransform, setPaGrowTransform] = useState<string | null>(null)
+  /** 行内の小さい「ぱ」を隠す（拡大用と入れ替わるタイミングで） */
+  const [paHidden, setPaHidden] = useState(false)
   const [paFading, setPaFading] = useState(false)
   const [papiPos, setPapiPos] = useState<{ left: number; top: number } | null>(
     null,
@@ -99,6 +107,7 @@ function OnboardingScene({
 
   const rootRef = useRef<HTMLDivElement>(null)
   const paCharRef = useRef<HTMLImageElement>(null)
+  const paGrowRef = useRef<HTMLImageElement>(null)
   const noroshiRef = useRef<NoroshiHandle | null>(null)
   const timersRef = useRef(new Set<ReturnType<typeof setTimeout>>())
   const startedRef = useRef(false)
@@ -161,7 +170,10 @@ function OnboardingScene({
     await wait(BEAT * 5)
 
     // 4: 「ぱ」(pa-0) を、半濁点の丸が主役になる程度に軽く寄せて拡大
-    //    （文字全体は画面にとどまったまま）
+    //    （文字全体は画面にとどまったまま）。
+    //    iOS Safari は <img> の SVG を初期表示サイズでラスタライズするため、
+    //    拡大後の実寸でレンダリングした別の <img> を重ね、1/scale の縮小
+    //    状態から等倍へ戻す。これで拡大しても輪郭がシャープなまま
     const root = rootRef.current
     const pa = paCharRef.current
     if (!root || !pa) {
@@ -174,18 +186,30 @@ function OnboardingScene({
       x: rootRect.width / 2,
       y: rootRect.height * 0.45,
     }
-    const dx = rootRect.left + center.x - (paRect.left + paRect.width / 2)
-    const dy = rootRect.top + center.y - (paRect.top + paRect.height / 2)
-    setPaStyle({
-      transform: `translate(${dx}px, ${dy}px) scale(${PA_GROW_SCALE})`,
+    const finalW = paRect.width * PA_GROW_SCALE
+    const finalH = paRect.height * PA_GROW_SCALE
+    const smallCx = paRect.left - rootRect.left + paRect.width / 2
+    const smallCy = paRect.top - rootRect.top + paRect.height / 2
+    setPaGrow({
+      left: center.x - finalW / 2,
+      top: center.y - finalH / 2,
+      width: finalW,
+      height: finalH,
     })
+    // まず行内の「ぱ」の位置・大きさにぴったり重ねる（transform-origin は中央）
+    setPaGrowTransform(
+      `translate(${smallCx - center.x}px, ${smallCy - center.y}px) scale(${1 / PA_GROW_SCALE})`,
+    )
+    setPaHidden(true) // 行内の小さい「ぱ」は同時に非表示
+    await wait(80) // 初期状態が描画されてから
+    setPaGrowTransform('translate(0px, 0px) scale(1)') // 中央へ等倍に拡大
     await wait(BEAT * 8)
 
     // 5: 誕生は「ぱ」の半濁点の丸の位置で起きる。
     //    丸（リング）の上に Papi の体をぴったり重ね、文字の一部が
     //    生き物になっていく。pa-0 の丸: viewBox(33×38) 内の
     //    中心(27.94, 4.55)・外径9.06
-    const grown = pa.getBoundingClientRect()
+    const grown = (paGrowRef.current ?? pa).getBoundingClientRect()
     const rootNow = root.getBoundingClientRect()
     const maruCx = grown.left - rootNow.left + grown.width * (27.94 / 33)
     const maruCy = grown.top - rootNow.top + grown.height * (4.55 / 38)
@@ -286,9 +310,11 @@ function OnboardingScene({
                 key={i}
                 ref={isLast ? paCharRef : undefined}
                 className={`onb-char${
-                  (isLast ? paFading : othersFaded) ? ' onb-fade-out' : ''
+                  !isLast && othersFaded ? ' onb-fade-out' : ''
                 }`}
-                style={isLast ? paStyle : undefined}
+                style={
+                  isLast && paHidden ? { visibility: 'hidden' } : undefined
+                }
                 src={onbSvgPath(ONB_CHAR_SVG[ch] ?? 'pa-0')}
                 alt={ch}
                 draggable={false}
@@ -296,6 +322,23 @@ function OnboardingScene({
             )
           })}
         </div>
+      )}
+
+      {paGrow && (
+        <img
+          ref={paGrowRef}
+          className={`onb-pa-grow${paFading ? ' onb-fade-out' : ''}`}
+          src={onbSvgPath('pa-0')}
+          alt="ぱ"
+          draggable={false}
+          style={{
+            left: paGrow.left,
+            top: paGrow.top,
+            width: paGrow.width,
+            height: paGrow.height,
+            transform: paGrowTransform ?? undefined,
+          }}
+        />
       )}
 
       {papiPos && (

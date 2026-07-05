@@ -6,6 +6,9 @@ import {
   preloadVoiceSamples,
   whenVoicesReady,
 } from './core/audio'
+import type { PlayVoiceOptions } from './core/audio'
+import { PUPE, startBot } from './core/bots'
+import type { BotHandle } from './core/bots'
 import { NOROSHI_INTERVAL_MS } from './core/constants'
 import { initTokenizer, safeConvertToPagyo } from './core/convert/papipupepo'
 import { startNoroshi } from './core/noroshi'
@@ -40,6 +43,14 @@ import type { PapiMouth } from './components/papiMouth'
  *   4. 各文字は上昇の頂点で星に変わり、夜空のランダムな位置に定着する
  *   5. 発話が終わるとパピはさまよいを再開する
  */
+
+/** ローカルで動く常駐ボット（presence にも DB にも書き込まない） */
+const BOT_USERS: RoomUser[] = [{ id: PUPE.id, color: PUPE.color }]
+
+/** 他ユーザーの声（少し高く・控えめ） */
+const OTHER_VOICE: PlayVoiceOptions = { volume: 2.0, playbackRate: 1.3 }
+/** ボットの声（さらに控えめの音量） */
+const BOT_VOICE: PlayVoiceOptions = { volume: 1.1, playbackRate: 1.35 }
 
 /** ユーザーIDから決まる、さまよいの位相（秒）。パピごとに動きがずれる */
 function wanderPhaseFor(id: string): number {
@@ -194,6 +205,7 @@ function App() {
 
   const noroshiRef = useRef<NoroshiHandle | null>(null)
   const roomRef = useRef<RoomHandle | null>(null)
+  const botRef = useRef<BotHandle | null>(null)
   /** 入室エフェクト（マウント時1回）から最新の色を読むための ref */
   const papiColorRef = useRef(papiColor)
   useEffect(() => {
@@ -247,7 +259,7 @@ function App() {
     joinRoom({
       color: papiColorRef.current,
       onPresence: (users) => setOthers(users),
-      onPost: (post) => queueRemotePost(post),
+      onPost: (post) => queueRemotePost(post, OTHER_VOICE),
     })
       .then((h) => {
         if (cancelled) {
@@ -268,6 +280,25 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // ボット「プペ」: ルーム画面に入ったら動き出し、ときどきひとりごとを言う。
+  // 完全ルールベース・ローカル動作（DB書き込みなし）
+  useEffect(() => {
+    if (scene !== 'room') return
+    const bot = startBot(PUPE, (b, phrase) => {
+      // ボットの台詞も必ず変換エンジンを通す（長音の展開などを揃える）
+      queueRemotePost(
+        { userId: b.id, color: b.color, pagyo: safeConvertToPagyo(phrase) },
+        BOT_VOICE,
+      )
+    })
+    botRef.current = bot
+    return () => {
+      botRef.current = null
+      bot.stop()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene])
 
   /** 飛行中の全文字を同じ曲線に沿って進める rAF ループ */
   const ensureFlightLoop = () => {
@@ -340,7 +371,7 @@ function App() {
    * 他ユーザーの投稿を演じる: その人のパピが立ち止まり、
    * 自分ののろしと同じ演出で発話し、文字は星になって残る。
    */
-  const performRemoteSpeech = (post: RoomPost) =>
+  const performRemoteSpeech = (post: RoomPost, voice: PlayVoiceOptions) =>
     new Promise<void>((resolve) => {
       // 登場直後は位置が定まっていないことがあるので少し待ってから発話
       const startTimer = setTimeout(() => {
@@ -369,7 +400,7 @@ function App() {
           post.pagyo,
           ({ char }) => {
             // 他のパピの声は少し高く・控えめに鳴らす
-            playPagyoChar(char, { volume: 2.0, playbackRate: 1.3 })
+            playPagyoChar(char, voice)
             setOtherMouths((prev) => ({
               ...prev,
               [post.userId]: mouthForChar(char),
@@ -391,19 +422,21 @@ function App() {
       timersRef.current.add(startTimer)
     })
 
-  /** 受信した投稿をユーザーごとの発話キューに積む */
-  const queueRemotePost = (post: RoomPost) => {
-    // 投稿者を画面に登場させる（不在なら発話の間だけ現れる）
-    setVisitors((prev) =>
-      prev.some((v) => v.id === post.userId)
-        ? prev
-        : [...prev, { id: post.userId, color: post.color }],
-    )
+  /** 受信した投稿（またはボットの発話）をユーザーごとの発話キューに積む */
+  const queueRemotePost = (post: RoomPost, voice: PlayVoiceOptions) => {
+    // 投稿者を画面に登場させる（不在なら発話の間だけ現れる。常駐ボットは対象外）
+    if (!BOT_USERS.some((b) => b.id === post.userId)) {
+      setVisitors((prev) =>
+        prev.some((v) => v.id === post.userId)
+          ? prev
+          : [...prev, { id: post.userId, color: post.color }],
+      )
+    }
     const prevChain =
       speechChainsRef.current.get(post.userId) ?? Promise.resolve()
     speechChainsRef.current.set(
       post.userId,
-      prevChain.then(() => performRemoteSpeech(post)),
+      prevChain.then(() => performRemoteSpeech(post, voice)),
     )
   }
 
@@ -503,6 +536,8 @@ function App() {
         setMouth('none')
         setText('')
         setPhase('idle') // さまよい再開
+        // プペに知らせる（かぶらないよう間を空けて、ときどき相槌が返る）
+        botRef.current?.notifyUserPost()
       },
     )
   }
@@ -542,8 +577,9 @@ function App() {
 
       <div className="room-bottom">
         <div className="papi-strip" ref={stripRef}>
-          {/* 在室中の他ユーザー + 発話のために現れた不在ユーザーのパピ */}
+          {/* 常駐ボット + 在室中の他ユーザー + 発話のために現れた不在ユーザー */}
           {[
+            ...BOT_USERS,
             ...others,
             ...visitors.filter((v) => !others.some((o) => o.id === v.id)),
           ].map((u) => (
