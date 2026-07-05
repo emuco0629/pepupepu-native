@@ -19,7 +19,10 @@
 1. App Store Connect API キーを作成 → Codemagic の Integrations に登録
    → `codemagic.yaml` のキー名（`codemagic_api_key`）を実名に変更
 2. App Store Connect でアプリを作成（Bundle ID: `com.pepupepu.app`）
-3. Codemagic で初ビルド → TestFlight
+3. Codemagic の Environment variables に `VITE_FIREBASE_*`（.env.local と
+   同じ7つ）を登録する（CI には .env.local がないため、これがないと
+   ビルドに Firebase 設定が入らない）
+4. Codemagic で初ビルド → TestFlight
 
 ### Fable 後の実装予定
 - Firebase 同期
@@ -27,6 +30,12 @@
 - ボット3体
 - 時間帯背景
 - オンボーディングのスキップ永続化
+
+## セットアップ
+
+1. `npm ci`
+2. **`.env.example` をコピーして `.env.local` を作り**、Firebase Console の
+   プロジェクト設定 > マイアプリ の値を入れる（`.env.local` はコミットされない）
 
 ## コマンド
 

@@ -12,9 +12,10 @@ dist
 dist-ssr
 *.local
 
-# 環境変数
+# 環境変数（.env.example は雛形なのでコミットする）
 .env
 .env.*
+!.env.example
 
 # cap sync で生成される（ios/.gitignore でも除外済みだが明示）
 ios/App/App/public/
