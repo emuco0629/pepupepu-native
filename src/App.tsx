@@ -21,10 +21,10 @@ import {
   storePapiColor,
   wingColorFor,
 } from './core/papiColor'
-import { joinRoom } from './core/room'
+import { getOrCreateUserId, joinRoom } from './core/room'
 import type { RoomHandle, RoomPost, RoomUser } from './core/room'
 import OnboardingScene from './components/OnboardingScene'
-import WanderingPapi from './components/WanderingPapi'
+import HoveringPapi from './components/HoveringPapi'
 import { mouthForChar } from './components/papiMouth'
 import type { PapiMouth } from './components/papiMouth'
 
@@ -47,18 +47,27 @@ import type { PapiMouth } from './components/papiMouth'
 /** ローカルで動く常駐ボット（presence にも DB にも書き込まない） */
 const BOT_USERS: RoomUser[] = [{ id: PUPE.id, color: PUPE.color }]
 
+/** 自分・他ユーザーのパピの表示幅 */
+const MY_PAPI_SIZE = 72
+const OTHER_PAPI_SIZE = 64
+
 /** 他ユーザーの声（少し高く・控えめ） */
 const OTHER_VOICE: PlayVoiceOptions = { volume: 2.0, playbackRate: 1.3 }
 /** ボットの声（さらに控えめの音量） */
 const BOT_VOICE: PlayVoiceOptions = { volume: 1.1, playbackRate: 1.35 }
 
-/** ユーザーIDから決まる、さまよいの位相（秒）。パピごとに動きがずれる */
-function wanderPhaseFor(id: string): number {
+/** ユーザーIDから決まる浮遊の位相。パピごとに揺れの周期・タイミングがずれる */
+function hoverPhaseFor(id: string): number {
   let hash = 0
   for (let i = 0; i < id.length; i++) {
     hash = (hash * 31 + id.charCodeAt(i)) | 0
   }
   return Math.abs(hash) % 60
+}
+
+/** HoveringPapi と同じ式で、スロットの中心 x（ストリップ基準・px）を求める */
+function slotCenterX(slotFrac: number, size: number, stripWidth: number): number {
+  return 8 + size / 2 + slotFrac * Math.max(0, stripWidth - size - 16)
 }
 
 /** のろし文字が星に変わるまでの上昇時間（ms）。ゆったり漂う速さ */
@@ -206,6 +215,8 @@ function App() {
   const noroshiRef = useRef<NoroshiHandle | null>(null)
   const roomRef = useRef<RoomHandle | null>(null)
   const botRef = useRef<BotHandle | null>(null)
+  /** 表示中の他パピの id → スロット割合（発話の発射点計算に使う） */
+  const slotMapRef = useRef(new Map<string, number>())
   /** 入室エフェクト（マウント時1回）から最新の色を読むための ref */
   const papiColorRef = useRef(papiColor)
   useEffect(() => {
@@ -216,7 +227,7 @@ function App() {
   /** ユーザーごとの発話キュー（同じ人の投稿が重なったら順番に演じる） */
   const speechChainsRef = useRef(new Map<string, Promise<void>>())
   const activeNoroshiRef = useRef(new Set<NoroshiHandle>())
-  /** パピの現在の中心 x（papi-strip 基準・px）。WanderingPapi が毎フレーム更新 */
+  /** パピの現在の中心 x（papi-strip 基準・px）。HoveringPapi が毎フレーム更新 */
   const papiXRef = useRef(0)
   const layerRef = useRef<HTMLDivElement>(null)
   const stripRef = useRef<HTMLDivElement>(null)
@@ -368,7 +379,7 @@ function App() {
   }
 
   /**
-   * 他ユーザーの投稿を演じる: その人のパピが立ち止まり、
+   * 他ユーザーの投稿を演じる: その人のパピが少し浮き上がり、
    * 自分ののろしと同じ演出で発話し、文字は星になって残る。
    */
   const performRemoteSpeech = (post: RoomPost, voice: PlayVoiceOptions) =>
@@ -380,13 +391,22 @@ function App() {
 
         const layerRect = layerRef.current?.getBoundingClientRect()
         const stripRect = stripRef.current?.getBoundingClientRect()
+        // 発射点の x: 実測（xRef）が使えればそれを、まだ動き出していなければ
+        // スロットから決定的に求める（登場直後でものろしが左端に出ない）
+        const measuredX = otherXRefs.current.get(post.userId)?.current
+        const slotX = slotCenterX(
+          slotMapRef.current.get(post.userId) ?? 0.5,
+          OTHER_PAPI_SIZE,
+          stripRect?.width ?? 343,
+        )
         const startX =
           (stripRect && layerRect ? stripRect.left - layerRect.left : 0) +
-          (otherXRefs.current.get(post.userId)?.current ?? 60)
+          (measuredX && measuredX > 1 ? measuredX : slotX)
         const path = layerRect
           ? makeNoroshiPath(
               startX,
-              (stripRect?.top ?? 0) - layerRect.top + 4,
+              // 浮上した頭の少し上から
+              (stripRect?.top ?? 0) - layerRect.top - 16,
               layerRect.width,
               layerRect.height,
             )
@@ -424,6 +444,9 @@ function App() {
 
   /** 受信した投稿（またはボットの発話）をユーザーごとの発話キューに積む */
   const queueRemotePost = (post: RoomPost, voice: PlayVoiceOptions) => {
+    // 自分の投稿はローカルで演出済み。room.ts でも除外しているが、
+    // 万一すり抜けても二重再生にならないよう防御的に遮断する
+    if (post.userId === getOrCreateUserId()) return
     // 投稿者を画面に登場させる（不在なら発話の間だけ現れる。常駐ボットは対象外）
     if (!BOT_USERS.some((b) => b.id === post.userId)) {
       setVisitors((prev) =>
@@ -491,6 +514,22 @@ function App() {
     return color
   }
 
+  // 表示する他パピの一覧（描画順 = スロット順）。自分は右端のスロットに入る
+  const othersDisplayed = [
+    ...BOT_USERS,
+    ...others,
+    ...visitors.filter((v) => !others.some((o) => o.id === v.id)),
+  ]
+
+  // 発話の発射点計算用に、id → スロット割合を常に最新へ
+  useEffect(() => {
+    const map = new Map<string, number>()
+    othersDisplayed.forEach((u, i) =>
+      map.set(u.id, (i + 0.5) / (othersDisplayed.length + 1)),
+    )
+    slotMapRef.current = map
+  })
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     if (phase !== 'idle' || !dictReady) return
@@ -517,7 +556,8 @@ function App() {
       layerRect && stripRect
         ? makeNoroshiPath(
             stripRect.left - layerRect.left + papiXRef.current,
-            stripRect.top - layerRect.top + 4,
+            // 浮上した頭の少し上から
+            stripRect.top - layerRect.top - 16,
             layerRect.width,
             layerRect.height,
           )
@@ -577,33 +617,34 @@ function App() {
 
       <div className="room-bottom">
         <div className="papi-strip" ref={stripRef}>
-          {/* 常駐ボット + 在室中の他ユーザー + 発話のために現れた不在ユーザー */}
-          {[
-            ...BOT_USERS,
-            ...others,
-            ...visitors.filter((v) => !others.some((o) => o.id === v.id)),
-          ].map((u) => (
-            <WanderingPapi
+          {/* 常駐ボット + 在室中の他ユーザー + 発話のために現れた不在ユーザー。
+              全員（自分含む）で横方向のスロットを均等に分け合い、
+              人数が変わるとゆっくり再配分される */}
+          {othersDisplayed.map((u, i) => (
+            <HoveringPapi
               key={u.id}
               mouth={otherMouths[u.id] ?? 'none'}
               color={u.color}
               mouthColor={mouthColorFor(u.color)}
               wingColor={wingColorFor(u.color)}
-              size={64}
-              paused={scene !== 'room' || !!otherSpeaking[u.id]}
-              phase={wanderPhaseFor(u.id)}
+              size={OTHER_PAPI_SIZE}
+              slot={(i + 0.5) / (othersDisplayed.length + 1)}
+              speaking={!!otherSpeaking[u.id]}
+              phase={hoverPhaseFor(u.id)}
               xRef={otherXRef(u.id)}
             />
           ))}
-          {/* 自分のパピ（最後に描画して手前に。papi-mine は着地位置の目印） */}
+          {/* 自分のパピ（右端のスロット。最後に描画して手前に。
+              papi-mine は着地位置の目印） */}
           <span className="papi-mine">
-            <WanderingPapi
+            <HoveringPapi
               mouth={mouth}
               color={papiColor}
               mouthColor={mouthColorFor(papiColor)}
               wingColor={wingColorFor(papiColor)}
-              size={72}
-              paused={phase !== 'idle' || scene !== 'room'}
+              size={MY_PAPI_SIZE}
+              slot={(othersDisplayed.length + 0.5) / (othersDisplayed.length + 1)}
+              speaking={phase !== 'idle'}
               xRef={papiXRef}
             />
           </span>
@@ -615,7 +656,7 @@ function App() {
             value={text}
             onChange={(e) => phase === 'idle' && setText(e.target.value)}
             readOnly={phase !== 'idle'}
-            placeholder="ことばをのろしに"
+            placeholder="きょうのひとこと"
             aria-label="投稿する言葉"
             enterKeyHint="send"
           />
@@ -661,7 +702,7 @@ function App() {
           chooseFinalColor={ensurePapiColor}
           getLandingRect={() =>
             stripRef.current
-              ?.querySelector('.papi-mine .papi-wander')
+              ?.querySelector('.papi-mine .papi-hover')
               ?.getBoundingClientRect() ?? null
           }
           onFinish={() => {
