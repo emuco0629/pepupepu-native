@@ -12,9 +12,9 @@ body,
 }
 
 body {
-  /* 夜空の最上段と同色（オーバースクロール時に境目が見えないように） */
-  background: #38305a;
-  color: #f4f1fb;
+  /* パステルの空の最上段と同色（オーバースクロール時に境目が見えないように） */
+  background: #aee4ff;
+  color: #6b6375;
   /* 単一画面アプリ: スクロールさせず、幅は常にビューポートと一致させる */
   overflow: hidden;
   /* iOS でのバウンス・ダブルタップ拡大を抑える */
@@ -29,7 +29,7 @@ body {
  * パディングは背景ではなく UI 要素側（.room-bottom）に適用し、
  * 入力欄などの操作要素だけがノッチ・ホームバーを避ける。
  *
- * 背景は薄紫の夜空。上ほど深く、下ほど淡い、フラットな色面のバンド4段。
+ * 背景は明るいパステルの空（水色 → ピンク）。room-v2 の世界。
  */
 .app {
   position: relative;
@@ -43,14 +43,10 @@ body {
 
   background: linear-gradient(
     to bottom,
-    #38305a 0%,
-    #38305a 26%,
-    #4e4379 26%,
-    #4e4379 52%,
-    #6f5fa0 52%,
-    #6f5fa0 76%,
-    #9a89c7 76%,
-    #9a89c7 100%
+    #aee4ff 0%,
+    #c8ecff 38%,
+    #ffe9f4 74%,
+    #ffddec 100%
   );
 }
 
@@ -59,6 +55,152 @@ body {
     height: 100dvh;
   }
 }
+
+/* ── room-v2: 雲・漂うキャラ・吹き出し ── */
+
+/* 丸い雲（ゆっくり右→左に流れ続ける）。キャラの漂い（左右まちまち・速め）
+   との速度差で、世界が横に流れているパララックスを作る */
+.cloud {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 999px;
+  filter: blur(0.5px);
+  animation: cloud-drift linear infinite;
+  pointer-events: none;
+}
+
+.cloud::before,
+.cloud::after {
+  content: '';
+  position: absolute;
+  background: inherit;
+  border-radius: 50%;
+}
+
+.cloud-1 {
+  width: 140px;
+  height: 44px;
+  top: 12%;
+  animation-duration: 95s;
+}
+.cloud-1::before {
+  width: 60px;
+  height: 60px;
+  top: -28px;
+  left: 22px;
+}
+.cloud-1::after {
+  width: 44px;
+  height: 44px;
+  top: -18px;
+  left: 68px;
+}
+
+.cloud-2 {
+  width: 100px;
+  height: 34px;
+  top: 30%;
+  animation-duration: 130s;
+  animation-delay: -40s;
+}
+.cloud-2::before {
+  width: 44px;
+  height: 44px;
+  top: -20px;
+  left: 16px;
+}
+.cloud-2::after {
+  width: 32px;
+  height: 32px;
+  top: -12px;
+  left: 50px;
+}
+
+.cloud-3 {
+  width: 170px;
+  height: 50px;
+  top: 52%;
+  animation-duration: 160s;
+  animation-delay: -90s;
+  opacity: 0.7;
+}
+.cloud-3::before {
+  width: 70px;
+  height: 70px;
+  top: -34px;
+  left: 30px;
+}
+.cloud-3::after {
+  width: 50px;
+  height: 50px;
+  top: -22px;
+  left: 86px;
+}
+
+.cloud-4 {
+  width: 90px;
+  height: 30px;
+  top: 68%;
+  animation-duration: 110s;
+  animation-delay: -70s;
+  opacity: 0.55;
+}
+.cloud-4::before {
+  width: 38px;
+  height: 38px;
+  top: -17px;
+  left: 14px;
+}
+.cloud-4::after {
+  width: 28px;
+  height: 28px;
+  top: -10px;
+  left: 46px;
+}
+
+@keyframes cloud-drift {
+  from {
+    transform: translateX(110vw);
+  }
+  to {
+    transform: translateX(-40vw);
+  }
+}
+
+/* キャラと吹き出しのフィールド（入力バー以外の全面） */
+.field {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* 漂うキャラ（中身は Papi SVG）。位置・透明度は rAF が直接更新する */
+.chara {
+  position: absolute;
+  left: 0;
+  top: 0;
+  will-change: transform, opacity;
+  pointer-events: none;
+}
+
+/* 吹き出し（丸め・白）。表示後は rAF が上へ流して消す */
+.bubble {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 10px 14px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 4px 12px rgba(150, 130, 180, 0.22);
+  font-size: 16px;
+  letter-spacing: 2px;
+  color: #6b6375;
+  white-space: nowrap;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* ── v1 の遺産（room-v2 では未使用。src/legacy/RoomV1Noroshi.tsx が参照） ── */
 
 /* ── 夜空: 星が降り積もり、のろし文字が立ちのぼる領域 ── */
 
