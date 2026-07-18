@@ -47,9 +47,9 @@ export function mouthColorFor(color: string): string {
   return color.toLowerCase() === '#ffffff' ? '#FFD3DF' : 'white'
 }
 
-/** 白い体のとき、羽にごく薄い明度差をつけて体との重なりを見せる */
-export function wingColorFor(color: string): string | undefined {
-  return color.toLowerCase() === '#ffffff' ? '#EFEAF7' : undefined
+/** 羽は常に体と同色（白い体も羽まで白。以前はグレーの明度差を付けていた） */
+export function wingColorFor(_color: string): string | undefined {
+  return undefined
 }
 
 /** 2色のあいだを t (0〜1) で線形補間する（誕生時のゆっくりした変色用） */

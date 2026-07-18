@@ -217,11 +217,11 @@ body {
   pointer-events: none;
 }
 
-/* 1行 = ミニキャラ＋吹き出し。自分は右寄せ（アバターも右）、他は左寄せ */
+/* 1行 = アイコン＋吹き出し。自分は右寄せ（アイコンも右）、他は左寄せ */
 .feed-row {
   display: flex;
   align-items: flex-end;
-  gap: 6px;
+  gap: 8px;
   animation: feed-row-in 0.5s ease both;
 }
 
@@ -257,12 +257,12 @@ body {
 }
 
 .feed-bubble {
-  max-width: 70%;
-  padding: 9px 13px;
-  border-radius: 18px;
+  max-width: 74%;
+  padding: 12px 16px;
+  border-radius: 20px;
   background: rgba(255, 255, 255, 0.95);
   box-shadow: 0 4px 12px rgba(150, 130, 180, 0.22);
-  font-size: 16px;
+  font-size: 17px;
   letter-spacing: 2px;
   color: #6b6375;
   overflow-wrap: anywhere;
@@ -328,9 +328,9 @@ body {
 
 /* ── 表情リアクション（既存アセットのみ。SVGは変更しない） ── */
 
-/* 喜び: 発話中ずっと小さく弾む */
+/* 喜び: 発話のはじめに3回だけ弾む（アニメーションははじめだけ） */
 .react-joy {
-  animation: react-joy 0.44s ease-in-out infinite;
+  animation: react-joy 0.44s ease-in-out 3;
 }
 
 @keyframes react-joy {

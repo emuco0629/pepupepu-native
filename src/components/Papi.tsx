@@ -42,6 +42,12 @@ interface PapiProps {
   eyes?: boolean
   /** 羽ばたくか。false の間はコマ1で静止する */
   flapping?: boolean
+  /**
+   * 羽のコマを固定する（1 = 下がった羽 / 2 = 上がった羽）。
+   * 指定すると羽ばたきに関係なくそのコマで静止する
+   * （挨拶リアクションの「手を挙げた」アイコンなどに使う。コマは原典 *1/*2.svg）
+   */
+  wingPose?: 1 | 2
   /** 表示幅（px）。高さは原典の縦横比（92:50）で自動決定 */
   size?: number
 }
@@ -54,6 +60,7 @@ function Papi({
   wings = true,
   eyes = true,
   flapping = true,
+  wingPose,
   size = 92,
 }: PapiProps) {
   const wingFill = wingColor ?? color
@@ -123,9 +130,10 @@ function Papi({
       aria-label="パピ"
     >
       {/* 羽（後）: コマ1↔2 は角度違い（原典 *1.svg / *2.svg）。
-          wings=false（原典 pa0.svg 相当）では描画しない */}
+          wings=false（原典 pa0.svg 相当）では描画しない。
+          wingPose 指定時はそのコマで静止する */}
       {wings &&
-        (wingFrame === 1 ? (
+        ((wingPose ?? wingFrame) === 1 ? (
         <>
           <ellipse
             cx="69.5"

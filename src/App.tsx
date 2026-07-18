@@ -52,17 +52,15 @@ import type { PapiMouth } from './components/papiMouth'
 
 /** 部屋の定員 = 自分＋他ユーザー＋ボットの合計 */
 const SLOT_COUNT = 7
-/** 自分・他キャラ・フィードのミニキャラの表示幅 */
-const MY_PAPI_SIZE = 72
-const OTHER_PAPI_SIZE = 56
-const FEED_AVATAR_SIZE = 34
+/** 自分・他キャラ・フィードのアイコンの表示幅（スマホ幅基準・LINE程度の大きさ） */
+const MY_PAPI_SIZE = 84
+const OTHER_PAPI_SIZE = 68
+const FEED_AVATAR_SIZE = 68
 
-/** 発話終了からフィード行が薄れ始めるまでの時間（ms） */
-const FEED_HOLD_MS = 7_000
 /** フィード行のフェードアウト時間（ms）。CSS の .feed-fading と合わせる */
 const FEED_FADE_MS = 900
-/** フィードに同時に置ける行数。超えたら最古から薄れる */
-const FEED_MAX_ROWS = 8
+/** フィード行数の安全上限（通常は画面上端あふれ検知が先に効く） */
+const FEED_MAX_ROWS = 24
 /** キラッ演出の長さ（ms）。CSS の .sparkle と合わせる */
 const SPARKLE_MS = 1_000
 
@@ -112,7 +110,7 @@ interface StripView {
   leaving: boolean
 }
 
-/** 発話フィードの1行（ミニキャラ＋吹き出し） */
+/** 発話フィードの1行（アイコン＋吹き出し） */
 interface FeedRow {
   id: number
   charaId: string
@@ -120,6 +118,8 @@ interface FeedRow {
   isMe: boolean
   text: string
   shown: number
+  /** 行のリアクション。挨拶ならアイコンが「手を挙げた」ポーズで固定される */
+  reaction: ReactionType
   stage: 'typing' | 'held' | 'fading'
 }
 
@@ -176,6 +176,7 @@ function App() {
   const activeNoroshiRef = useRef(new Set<NoroshiHandle>())
   const timersRef = useRef(new Set<ReturnType<typeof setInterval>>())
   const myZoneRef = useRef<HTMLDivElement>(null)
+  const feedRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     // ルール2: 最初のユーザー操作で Web Audio をアンロックする
@@ -327,13 +328,21 @@ function App() {
     )
   }
 
-  // 行数が上限を超えたら、最古の行から薄れさせる
+  // 吹き出しは時間では消さない。行が積み上がって画面上端からあふれたら
+  // （= いちばん古い行が上段に達して押し出されたら）最古の行から薄れて消える。
+  // 注意: justify-content: flex-end のflexでは上方向のはみ出しが scrollHeight に
+  // 含まれないため、最古行の実座標がフィード上端より上かどうかで判定する
   useEffect(() => {
+    // 消えかけの行がまだ場所を取っている間は待つ（消えすぎ防止）
+    if (feed.some((r) => r.stage === 'fading')) return
+    const el = feedRef.current
+    const first = el?.querySelector('.feed-row')
+    if (!el || !first) return
+    const overflowing =
+      first.getBoundingClientRect().top < el.getBoundingClientRect().top
     const alive = feed.filter((r) => r.stage !== 'fading')
-    if (alive.length > FEED_MAX_ROWS) {
-      for (const r of alive.slice(0, alive.length - FEED_MAX_ROWS)) {
-        fadeOutRow(r.id)
-      }
+    if ((overflowing && alive.length > 1) || alive.length > FEED_MAX_ROWS) {
+      fadeOutRow(alive[0].id)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [feed])
@@ -365,6 +374,7 @@ function App() {
           isMe: options.isMe ?? false,
           text: pagyo,
           shown: 0,
+          reaction: options.reaction,
           stage: 'typing',
         },
       ])
@@ -392,7 +402,7 @@ function App() {
                 : r,
             ),
           )
-          after(FEED_HOLD_MS, () => fadeOutRow(rowId))
+          // 行はここでは消さない（上段に達して押し出されるまで残る）
           resolve()
         },
       )
@@ -571,8 +581,9 @@ function App() {
       <div className="cloud cloud-3" />
       <div className="cloud cloud-4" />
 
-      {/* 発話フィード: 新しい行が下、古い行は押し上げられて薄れて消える */}
-      <div className="feed">
+      {/* 発話フィード: 新しい行が下、古い行は押し上げられ、
+          画面上端に達したものから薄れて消える */}
+      <div className="feed" ref={feedRef}>
         {feed.map((row) => (
           <div
             key={row.id}
@@ -580,6 +591,8 @@ function App() {
               row.stage === 'fading' ? ' feed-fading' : ''
             }`}
           >
+            {/* アイコンは静止（口パクだけ発話に同期）。
+                挨拶の行は「手を挙げた」ポーズ（羽上げコマ）で固定 */}
             <span className="feed-avatar">
               <Papi
                 mouth={
@@ -590,6 +603,8 @@ function App() {
                 color={row.color}
                 mouthColor={mouthColorFor(row.color)}
                 wingColor={wingColorFor(row.color)}
+                flapping={false}
+                wingPose={row.reaction === 'greeting' ? 2 : undefined}
                 size={FEED_AVATAR_SIZE}
               />
             </span>
