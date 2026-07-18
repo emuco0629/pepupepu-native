@@ -310,7 +310,13 @@ function App() {
     const bot = startBot(PUPE, (b, phrase) => {
       // ボットの台詞も必ず変換エンジンを通す（長音の展開などを揃える）
       queueRemotePost(
-        { userId: b.id, color: b.color, pagyo: safeConvertToPagyo(phrase) },
+        {
+          userId: b.id,
+          color: b.color,
+          pagyo: safeConvertToPagyo(phrase),
+          // v3で追加されたフィールド。v1は表情リアクション未対応
+          reaction: 'normal',
+        },
         BOT_VOICE,
       )
     })
@@ -552,7 +558,8 @@ function App() {
 
     // ルームへ送信するのは変換後のパ行文字列のみ（プライバシー原則:
     // 原文 original は、いかなる形でもネットワークに送らない）
-    roomRef.current?.post(pagyo)
+    // v1は表情リアクション未対応のため常に 'normal'
+    roomRef.current?.post(pagyo, 'normal')
 
     // ボイスの準備（デコード完了 + AudioContext running、タイムアウト付き）は
     // 変身アニメーションの裏で並行して待ち、体感の待ち時間をゼロに近づける

@@ -12,19 +12,22 @@ import {
   startAt,
 } from 'firebase/database'
 import { db } from './firebase'
+import { normalizeReaction } from './reaction'
+import type { ReactionType } from './reaction'
 
 /**
  * ルームのリアルタイム同期（Firebase Realtime Database）
  *
  * プライバシー原則（最重要）:
- *   データベースに保存するのは変換後のパ行文字列（pagyo）のみ。
+ *   データベースに保存するのは変換後のパ行文字列（pagyo）と、
+ *   端末内のキーワード判定で決まったリアクション種別のみ。
  *   変換前の原文は、いかなる形でも送信・保存しない。
- *   このモジュールの post() が受け取るのは pagyo だけであり、
+ *   このモジュールの post() が受け取るのは pagyo と reaction だけであり、
  *   原文がここへ到達する経路をコード上作らないこと。
  *
  * データ構造:
  *   rooms/lobby/presence/{userId}: { color, lastActive } … 在室管理
- *   rooms/lobby/posts/{postId}:    { userId, color, pagyo, createdAt } … 投稿
+ *   rooms/lobby/posts/{postId}:    { userId, color, pagyo, reaction, createdAt } … 投稿
  *
  * 仕様:
  *   - 部屋は固定の1部屋（rooms/lobby）、最大 MAX_ROOM_USERS 人
@@ -44,6 +47,8 @@ export interface RoomPost {
   userId: string
   color: string
   pagyo: string
+  /** 表情リアクション（旧クライアントの投稿は 'normal' に丸められる） */
+  reaction: ReactionType
 }
 
 export interface RoomUser {
@@ -54,8 +59,8 @@ export interface RoomUser {
 export interface RoomHandle {
   /** 満室で入れなかった場合 true（その場合はローカルのみで動作する） */
   readonly full: boolean
-  /** 変換後のパ行文字列を投稿する（原文は絶対に渡さないこと） */
-  post: (pagyo: string) => void
+  /** 変換後のパ行文字列とリアクション種別を投稿する（原文は絶対に渡さないこと） */
+  post: (pagyo: string, reaction: ReactionType) => void
   /** 自分の色を変更する（誕生時の色決定・将来の色変え機能用） */
   setColor: (color: string) => void
   leave: () => void
@@ -153,6 +158,7 @@ export async function joinRoom(options: JoinRoomOptions): Promise<RoomHandle> {
         userId?: string
         color?: string
         pagyo?: string
+        reaction?: string
       }
       if (!value?.pagyo || !value.userId) return
       if (value.userId === userId) return // 自分の投稿はローカルで演出済み
@@ -160,6 +166,7 @@ export async function joinRoom(options: JoinRoomOptions): Promise<RoomHandle> {
         userId: value.userId,
         color: value.color ?? '#C8B0FE',
         pagyo: value.pagyo,
+        reaction: normalizeReaction(value.reaction),
       })
     },
   )
@@ -179,11 +186,12 @@ export async function joinRoom(options: JoinRoomOptions): Promise<RoomHandle> {
     })
   }
 
-  const post = (pagyo: string) => {
+  const post = (pagyo: string, reaction: ReactionType) => {
     void push(postsRef, {
       userId,
       color: currentColor,
       pagyo,
+      reaction,
       createdAt: serverTimestamp(),
     })
     void set(myPresenceRef, presenceValue())
