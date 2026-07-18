@@ -348,7 +348,6 @@ function App() {
     charaId: string,
     pagyo: string,
     options: SpeakOptions,
-    onTick?: () => void,
   ): Promise<void> =>
     new Promise((resolve) => {
       if (!pagyo) {
@@ -380,7 +379,6 @@ function App() {
           setFeed((prev) =>
             prev.map((r) => (r.id === rowId ? { ...r, shown: index + 1 } : r)),
           )
-          onTick?.()
         },
         () => {
           activeNoroshiRef.current.delete(handle)
@@ -531,20 +529,22 @@ function App() {
     await morphInInput(original, pagyo)
     await voicesReady
 
+    // 変身（無音）はここで終わり。入力欄を空にして一拍おいてから発話に移る。
+    // パ音が鳴るのは、この先の吹き出しに文字が現れる時だけ
+    setText('')
+    await new Promise<void>((r) => after(NOROSHI_INTERVAL_MS, r))
+
     // 新しいリアクションを初めて獲得したときだけ、自分がキラッと光る
     if (markReactionEarned(reaction)) {
       setSparkling(true)
       after(SPARKLE_MS, () => setSparkling(false))
     }
 
-    // 吹き出しに1文字現れるたび、入力欄に残っている文字が1つ減っていく
-    await speak(
-      ME_ID,
-      pagyo,
-      { color: papiColorRef.current, isMe: true, reaction },
-      () => setText((prev) => Array.from(prev).slice(1).join('')),
-    )
-    setText('')
+    await speak(ME_ID, pagyo, {
+      color: papiColorRef.current,
+      isMe: true,
+      reaction,
+    })
     setPhase('idle') // うろうろ再開
 
     // ボットに知らせる（かぶらないよう間を空けて、ときどき相槌が返る）。
